@@ -1,67 +1,119 @@
+# Requires -Version 5.1
 $ErrorActionPreference = "Stop"
-$Repo = "phalanx-engine/phalanx"
-$BinaryName = "phalanx-daemon.exe"
-$InstallDir = "$env:USERPROFILE\.phalanx\bin"
-$DefaultVersion = "v0.2.0"
 
-Write-Host "==> Detecting Windows Architecture..." -ForegroundColor Green
+$Repo = "neon-tasker/phalanx"
+$BinaryName = "phalanx-daemon.exe"
+$AliasName = "phalanx.exe"
+$InstallDir = "$env:USERPROFILE\.phalanx\bin"
+$Target = "x86_64-pc-windows-msvc"
+
+function Write-PhalanxInfo($msg) {
+    Write-Host "==> " -ForegroundColor Green -NoNewline
+    Write-Host $msg
+}
+function Write-PhalanxWarn($msg) {
+    Write-Host "[WARN] " -ForegroundColor Yellow -NoNewline
+    Write-Host $msg
+}
+function Write-PhalanxError($msg) {
+    Write-Host "[ERROR] " -ForegroundColor Red -NoNewline
+    Write-Host $msg
+    exit 1
+}
+
 $Arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
 if ($Arch -ne [System.Runtime.InteropServices.Architecture]::X64) {
-    Write-Error "[ERROR] Phalanx Daemon on Windows natively supports x64 (x86_64) architecture only."
-    exit 1
+    Write-PhalanxError "Phalanx Daemon Windows distribution requires x86_64 (AMD64) architecture."
 }
 
-$Target = "x86_64-pc-windows-msvc"
-Write-Host "==> Querying latest release for target $Target..." -ForegroundColor Green
-try {
-    $ReleaseUri = "https://api.github.com/repos/$Repo/releases/latest"
-    $Release = Invoke-RestMethod -Uri $ReleaseUri -Headers @{ "User-Agent" = "PowerShell-Phalanx-Installer" }
-    $Version = $Release.tag_name
-} catch {
-    Write-Warning "Could not connect to GitHub Releases API. Defaulting to $DefaultVersion."
-    $Version = $DefaultVersion
+if ($env:PHALANX_VERSION) {
+    $Version = $env:PHALANX_VERSION
+    Write-PhalanxInfo "Using explicit version: $Version"
+} else {
+    Write-PhalanxInfo "Resolving latest release tag from GitHub..."
+    try {
+        $Req = [System.Net.WebRequest]::Create("https://github.com/$Repo/releases/latest")
+        $Req.AllowAutoRedirect = $false
+        $Req.Method = "HEAD"
+        $Response = $Req.GetResponse()
+        $Location = $Response.GetResponseHeader("Location")
+        $Response.Close()
+
+        if ($Location) {
+            $Version = $Location.Substring($Location.LastIndexOf('/') + 1)
+        }
+    } catch {
+        Write-PhalanxWarn "Redirect query failed, falling back to API..."
+    }
+
+    if (-not $Version) {
+        try {
+            $ApiUri = "https://api.github.com/repos/$Repo/releases/latest"
+            $ApiRelease = Invoke-RestMethod -Uri $ApiUri -Headers @{ "User-Agent" = "Phalanx-Installer" }
+            $Version = $ApiRelease.tag_name
+        } catch {
+            Write-PhalanxError "Failed to resolve release version. Set `$env:PHALANX_VERSION manually."
+        }
+    }
 }
+Write-PhalanxInfo "Target version: $Version"
 
 $ZipName = "phalanx-daemon-$Version-$Target.zip"
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Version/$ZipName"
-$TempZip = Join-Path $env:TEMP $ZipName
+$ChecksumName = "$ZipName.sha256"
+$BaseUrl = "https://github.com/$Repo/releases/download/$Version"
 
-Write-Host "==> Downloading $DownloadUrl..." -ForegroundColor Green
+$TempDir = Join-Path $env:TEMP ([System.IO.Path]::GetRandomFileName())
+New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
+$ZipPath = Join-Path $TempDir $ZipName
+$ChecksumPath = Join-Path $TempDir $ChecksumName
+
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempZip -UseBasicParsing
+    Write-PhalanxInfo "Downloading $ZipName..."
+    Invoke-WebRequest -Uri "$BaseUrl/$ZipName" -OutFile $ZipPath -UseBasicParsing
+
+    Write-PhalanxInfo "Downloading $ChecksumName..."
+    Invoke-WebRequest -Uri "$BaseUrl/$ChecksumName" -OutFile $ChecksumPath -UseBasicParsing
 } catch {
-    Write-Error "[ERROR] Failed to download release asset from $DownloadUrl. Check connection or release status."
-    exit 1
+    Write-PhalanxError "Download failed: $_"
 }
 
-if (!(Test-Path -Path $InstallDir)) {
-    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Write-PhalanxInfo "Validating cryptographic SHA256 signature..."
+$ExpectedHash = (Get-Content $ChecksumPath).Split(" ")[0].Trim().ToLower()
+$ActualHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
+
+if ($ExpectedHash -ne $ActualHash) {
+    Write-PhalanxError "SHA256 hash mismatch! Expected: $ExpectedHash, Received: $ActualHash"
 }
 
-Write-Host "==> Extracting binary to $InstallDir..." -ForegroundColor Green
-Expand-Archive -Path $TempZip -DestinationPath $env:TEMP -Force
-$ExtractedBin = Join-Path $env:TEMP "phalanx-daemon.exe"
-if (Test-Path $ExtractedBin) {
-    Move-Item -Path $ExtractedBin -Destination (Join-Path $InstallDir $BinaryName) -Force
-    Remove-Item $TempZip -Force -ErrorAction SilentlyContinue
-} else {
-    Write-Error "[ERROR] Extracted payload did not contain phalanx-daemon.exe."
-    exit 1
+if (-not (Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
-Write-Host "==> Configuring User Environment PATH..." -ForegroundColor Green
+Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force
+$ExtractedBin = Join-Path $TempDir "phalanx-daemon.exe"
+
+if (-not (Test-Path $ExtractedBin)) {
+    Write-PhalanxError "Archive payload did not contain phalanx-daemon.exe."
+}
+
+Copy-Item -Path $ExtractedBin -Destination (Join-Path $InstallDir $BinaryName) -Force
+Copy-Item -Path $ExtractedBin -Destination (Join-Path $InstallDir $AliasName) -Force
+
+Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
+
+Write-PhalanxInfo "Configuring persistent User Environment PATH..."
 $CurrentPath = [Environment]::GetEnvironmentVariable("PATH", [EnvironmentVariableTarget]::User)
 if ($CurrentPath -notlike "*$InstallDir*") {
-    $NewPath = "$CurrentPath;$InstallDir"
+    $NewPath = "$InstallDir;$CurrentPath".TrimEnd(';')
     [Environment]::SetEnvironmentVariable("PATH", $NewPath, [EnvironmentVariableTarget]::User)
-    $env:PATH = "$env:PATH;$InstallDir"
-    Write-Host "Added $InstallDir to User Environment PATH." -ForegroundColor Green
+    $env:PATH = "$InstallDir;$env:PATH"
+    Write-PhalanxInfo "Added $InstallDir to User PATH."
 } else {
-    $env:PATH = "$env:PATH;$InstallDir"
+    $env:PATH = "$InstallDir;$env:PATH"
 }
 
-$ExecutablePath = Join-Path $InstallDir $BinaryName
-if (Test-Path $ExecutablePath) {
+$Executable = Join-Path $InstallDir $BinaryName
+if (Test-Path $Executable) {
     Write-Host @"
 
     ____  __  _____    __    ___    _   ___  __
@@ -72,9 +124,10 @@ if (Test-Path $ExecutablePath) {
            IN-MEMORY REVM SIMULATION DAEMON
 "@ -ForegroundColor Cyan
 
-    Write-Host "`nPhalanx Daemon ($Version) installed successfully to: $ExecutablePath" -ForegroundColor Green
-    Write-Host "Run 'phalanx-daemon --help' to start." -ForegroundColor Yellow
+    Write-Host "`nPhalanx Daemon ($Version) deployed successfully!" -ForegroundColor Green
+    Write-Host "Staged Path: $Executable" -ForegroundColor White
+    Write-Host "CLI Alias:   $(Join-Path $InstallDir $AliasName)" -ForegroundColor White
+    Write-Host "`nRun 'phalanx --help' or 'phalanx-daemon verify' to begin.`n" -ForegroundColor Yellow
 } else {
-    Write-Error "[ERROR] Installation verification failed: $ExecutablePath not found."
-    exit 1
+    Write-PhalanxError "Installation verification failed. Executable not found."
 }
