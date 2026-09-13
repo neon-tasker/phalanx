@@ -1,0 +1,18 @@
+[package]
+name = "phalanx-pipeline"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+phalanx-core = { workspace = true }
+phalanx-accumulator = { workspace = true }
+phalanx-enclave = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-consensus = { workspace = true }
+alloy-rlp = { workspace = true }
+revm = { workspace = true }
+rayon = { workspace = true }
+crossbeam-utils = { workspace = true }
+thiserror = { workspace = true }

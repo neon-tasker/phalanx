@@ -1,0 +1,35 @@
+[package]
+name = "phalanx-fuzz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+phalanx-core = { workspace = true }
+phalanx-accumulator = { workspace = true }
+phalanx-enclave = { workspace = true }
+phalanx-pipeline = { workspace = true }
+revm = { workspace = true }
+alloy-primitives = { workspace = true, features = ["rand"] }
+alloy-consensus = { workspace = true }
+thiserror = { workspace = true }
+proptest = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+
+[[test]]
+name = "differential_tests"
+path = "tests/differential_tests.rs"
+
+[[test]]
+name = "adversarial_attack_tests"
+path = "tests/adversarial_attack_tests.rs"
+
+[[test]]
+name = "soak_test"
+path = "tests/soak_test.rs"
+
+[[test]]
+name = "exploit_screen"
+path = "tests/exploit_screen.rs"

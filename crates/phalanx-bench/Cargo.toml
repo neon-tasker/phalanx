@@ -1,0 +1,23 @@
+[package]
+name = "phalanx-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+phalanx-core = { workspace = true }
+phalanx-accumulator = { workspace = true }
+phalanx-pipeline = { workspace = true }
+alloy-primitives = { workspace = true }
+revm = { workspace = true }
+rayon = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "hotspot_mint"
+harness = false
+
+[[bench]]
+name = "simd_reduction"
+harness = false

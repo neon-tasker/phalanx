@@ -1,0 +1,105 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: write
+
+jobs:
+  build-cross:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+            archive_format: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+            archive_format: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            archive_format: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-13
+            use_cross: false
+            archive_format: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            archive_format: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross.git
+
+      - name: Build phalanx-daemon release binary
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }} -p phalanx-daemon
+          else
+            cargo build --release --target ${{ matrix.target }} -p phalanx-daemon
+          fi
+        shell: bash
+
+      - name: Strip debug symbols (UNIX)
+        if: matrix.os != 'windows-latest'
+        run: |
+          BIN_PATH="target/${{ matrix.target }}/release/phalanx-daemon"
+          if [[ "${{ matrix.target }}" == *"apple"* ]]; then
+            strip "${BIN_PATH}"
+          else
+            strip --strip-all "${BIN_PATH}"
+          fi
+        shell: bash
+
+      - name: Package Archive (tar.gz)
+        if: matrix.archive_format == 'tar.gz'
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          ARCHIVE_NAME="phalanx-daemon-${TAG_NAME}-${{ matrix.target }}.tar.gz"
+          cp "target/${{ matrix.target }}/release/phalanx-daemon" ./phalanx-daemon
+          tar -czf "${ARCHIVE_NAME}" phalanx-daemon
+          shasum -a 256 "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          echo "ASSET_PATH=${ARCHIVE_NAME}" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=${ARCHIVE_NAME}.sha256" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Package Archive (zip)
+        if: matrix.archive_format == 'zip'
+        run: |
+          $TagName = "${{ github.ref_name }}"
+          $ArchiveName = "phalanx-daemon-$TagName-${{ matrix.target }}.zip"
+          Copy-Item "target/${{ matrix.target }}/release/phalanx-daemon.exe" -Destination "./phalanx-daemon.exe"
+          Compress-Archive -Path "./phalanx-daemon.exe" -DestinationPath $ArchiveName
+          $Hash = (Get-FileHash -Path $ArchiveName -Algorithm SHA256).Hash.ToLower()
+          "$Hash  $ArchiveName" | Out-File -Encoding ascii "$ArchiveName.sha256"
+          echo "ASSET_PATH=$ArchiveName" >> $env:GITHUB_ENV
+          echo "CHECKSUM_PATH=$ArchiveName.sha256" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Publish Artifact to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ASSET_PATH }}
+            ${{ env.CHECKSUM_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

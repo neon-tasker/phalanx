@@ -1,0 +1,46 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/phalanx-core",
+    "crates/phalanx-accumulator",
+    "crates/phalanx-enclave",
+    "crates/phalanx-pipeline",
+    "crates/phalanx-fuzz",
+    "crates/phalanx-bench",
+    "crates/phalanx-daemon",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+phalanx-core = { path = "crates/phalanx-core" }
+phalanx-accumulator = { path = "crates/phalanx-accumulator" }
+phalanx-enclave = { path = "crates/phalanx-enclave" }
+phalanx-pipeline = { path = "crates/phalanx-pipeline" }
+phalanx-fuzz = { path = "crates/phalanx-fuzz" }
+
+revm = { version = "14.0", default-features = false, features = ["std", "secp256k1", "portable"] }
+alloy-primitives = { version = "0.8", default-features = false, features = ["std"] }
+alloy-consensus = { version = "0.8" }
+alloy-rlp = "0.3"
+rayon = "1.10"
+crossbeam-utils = "0.8"
+thiserror = "1.0"
+proptest = "1.4"
+rand = "0.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# Unifies 'display' and 'from' features for derive_more 1.0 across all dependencies (fixing alloy-eip7702)
+derive_more = { version = "1.0", features = ["display", "from"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
+debug = false

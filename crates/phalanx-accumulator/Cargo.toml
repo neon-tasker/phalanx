@@ -1,0 +1,16 @@
+[package]
+name = "phalanx-accumulator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+phalanx-core = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-consensus = { workspace = true }
+crossbeam-utils = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+rayon = { workspace = true }
